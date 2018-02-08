@@ -1,1 +1,162 @@
+pythondatabase
 
+This is a prototype/template that you could use in your python programs to make your life with the database interfaces easier.
+Basic idea was to hide all SQL syntax and parsing COMPLETELY from the actual program.
+
+This code is setup on pymysql, but could easily transfered to use other databases like sqlite, postgress, oracle, etc.
+
+Basic concept of the usage is quite simple. You create your own Database Class like:
+
+----------------------------------------------------------------------------------------------------
+
+from .databaseentity import DatabaseEntity
+
+class MyDatabaseClass(DatabaseEntity):
+    # database table model
+    _keywordTableModel = {
+        'col1': 'INTEGER',
+        'col2': 'FLOAT',
+        'col3' : 'TEXT'
+    }
+
+    col1 = None
+    col2 = None
+    col3 = None
+    
+    # creates the object
+    def __init__(self, values=None):
+        self.setTableValues(values)    
+
+    # which table shall be used
+    def getTableName(self):
+        return self.__class__.__name__
+    
+    # defines the model
+    def getTableModel(self):
+        d = dict(self._keywordTableModel)
+        d.update(super(self.__class__, self).getTableModel())
+        return d
+    
+    # defines the columns
+    def getTableColumns(self):
+        return list(self._keywordTableModel.keys()) + list(super(self.__class__, self).getTableModel().keys())
+    
+    def getTableValues(self):
+        d =  {
+            'col1': self.col1,
+            'col2': self.col2,
+            'col3' : self.col3
+        }
+        
+        s = super(self.__class__, self).getTableValues()
+        if s != None:
+            d.update(s)
+            
+        return d
+        
+    def setTableValues(self, values):
+        if values != None:
+            self.col1 = values['col1']
+            self.col2 = values['col2']
+            self.col3 = values['col3']
+            
+            super(self.__class__, self).setTableValues(values)
+
+----------------------------------------------------------------------------------------------------
+
+Please note to replace col1, col2, col3 with whatever you want, the data types INTEGER, FLOAT, TEXT
+must be known by your database engine.
+
+Make this class known to the database object (to create the table automatically):
+
+In file databasemodel.py check for:
+
+        from .mydatabaseclass import MyDatabaseClass
+
+        def getDatabaseModel():
+
+            model = dict()
+
+            for o in [MyDatabaseClass()]:
+                model[o.getTableName()] = o.getTableModel()
+
+            return model
+
+Then in your python program you could use this:
+
+    # load configuration
+    configuration = 0
+    json_data = open('config.json', encoding='utf-8').read()
+    configuration = json.loads(json_data)
+
+    # open database
+    db = database.Database(configuration)
+
+config.json must hold values to access the database containing:
+        "mysql-user" : "<user>",
+        "mysql-password" : "<password>",
+        "mysql-host" : "<hostname>",
+        "mysql-database" : "<databasename>"
+
+This could be modified in database.py in function _openDatabase()
+
+
+To access the MyDatabaseClass, simply use something like this:
+
+from databasemodel.mydatabaseclass import MyDatabaseClass
+from databasemodel import databasemodel as dm
+
+for c in dm.getDatabaseEntities(db, MyDatabaseClass):
+    print(c.col1)
+
+
+You will see that for each database class a single table will be created with the columns as you specified and
+a DEFAULT col called id with auto increment as primary key.
+
+To build references between tables, you could rely on the id value, you don't need extra stuff. But this method does not
+support foreign key concepts (so it's not a hard link).
+
+
+To save data to the database you could simply do:
+
+    c = MyDatabaseClass()
+    c.col1 = 42
+    c.col2 = 3.1415
+    c.col3 = 'Hello World'
+    c.saveToDatabase(db)
+    
+So pretty simple usage. If you want to update the data, this goes exactly the same way:
+
+for c in dm.getDatabaseEntities(db, MyDatabaseClass):
+    print(c.col1)
+    c.col1 = 42
+    c.saveToDatabase(db)
+
+Would set 42 to each col1 of MyDatabaseClass and save the changes.
+
+
+If you want to delete an item, just do:
+    dm.deleteDatabaseEntity(db, c)
+
+To query your table use the databasemanager (dm):
+
+dm.getDatabaseEntities(db, entitytype, condition=None, order=None, limit=None)
+dm.getFirstDatabaseEntity(db, entitytype, condition=None, order=None)
+
+The order field could be like SQL syntax with AND, OR, IN, etc.
+
+Note:
+- There is no SELECT COUNT(), just do len() of the result.
+- There is not GROUP BY, could be than done by using dict()
+- There is no FROM, from is always the table of the given class, in case you need a second query in the other table:
+    for c in dm.getDatabaseEntities(db, MyDatabaseClass):
+        for d in dm.getDatabaseEntities(db, AnotherClass, "mydatabaseclassid = %d" % c.id):
+            print(...)
+
+Of course this is not as fast as doing optimized SQL queries, but to me it comes with improved readability of the code
+and less pain with walking through SQL syntax, etc.
+
+Btw: I also used a Mutex/Lock mechanism so that you could run the code from multiple python threads. Of course this will
+be blocking other threads as only one is allowed by pymsql.
+
+Would be glad to get feedback, comments, hints for improvements. Hope this is usefull in one of your python projects.
